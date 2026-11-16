@@ -1,0 +1,5 @@
+cantera>=3.2
+streamlit>=1.67
+plotly>=7.1
+anthropic>=2.8
+numpy

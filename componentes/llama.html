@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<style>
+  html, body { margin: 0; height: 100%; background: #070d14; overflow: hidden; }
+  [hidden] { display: none !important; }
+  .stage { position: relative; height: 100%; border-radius: 10px; overflow: hidden;
+    background: linear-gradient(rgba(148,176,181,.05) 1px, transparent 1px) 0 0 / 36px 36px,
+      linear-gradient(90deg, rgba(148,176,181,.05) 1px, transparent 1px) 0 0 / 36px 36px,
+      radial-gradient(ellipse at 45% 75%, #2a2119 0, #111f28 40%, #08131b 80%); }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .hud { position: absolute; left: 10px; right: 10px; top: 8px; display: flex; flex-wrap: wrap; gap: 6px;
+    font: 500 12px 'DM Mono', ui-monospace, monospace; color: #bccad1; pointer-events: none; }
+  .hud span { padding: 3px 8px; border-radius: 6px; background: rgba(7,13,20,.72); }
+  .boom { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
+  .boom-btn { position: absolute; right: 10px; bottom: 10px; z-index: 4; padding: 8px 14px; border: 1px solid #ff7a6e;
+    border-radius: 999px; background: rgba(120, 20, 15, .85); color: #fff; font: 600 13px system-ui, sans-serif; cursor: pointer; }
+  .boom-btn:hover { background: rgba(170, 30, 20, .95); }
+  .boom-info { position: absolute; left: 50%; top: 42px; transform: translateX(-50%); z-index: 4; padding: 6px 14px;
+    border-radius: 999px; background: rgba(7, 13, 20, .8); color: #ffd9a0; white-space: nowrap; font: 600 15px 'DM Mono', ui-monospace, monospace; }
+  .empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center;
+    background: rgba(8,18,26,.75); color: #bccad1; font: 14px system-ui, sans-serif; }
+  .empty b { display: block; color: #e8eef1; font-size: 15px; margin-bottom: 4px; }
+</style></head>
+<body><div class="stage">
+  <canvas id="flameCanvas"></canvas>
+  <div class="hud" id="hud"></div>
+  <canvas id="boomCanvas" class="boom"></canvas>
+  <div class="boom-info" id="boomInfo" hidden></div>
+  <button class="boom-btn" id="boomBtn" type="button" hidden></button>
+  <div class="empty" id="empty" hidden><div><b id="emptyTitle"></b><span id="emptyText"></span></div></div>
+</div>
+<!-- Anime.js por CDN: solo adorna. Si no carga (sin internet) el componente funciona igual, sin estas animaciones. -->
+<script src="https://cdn.jsdelivr.net/npm/animejs@4.5.0/dist/bundles/anime.umd.min.js"></script>
+<script>
+const P = __PARAMS__;
+// null si Anime.js no cargó o si el sistema pide menos movimiento.
+const animar = (window.anime && !matchMedia('(prefers-reduced-motion: reduce)').matches) ? window.anime : null;
+const $ = (s, r = document) => r.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const flame = (() => {
+  const canvas = $('#flameCanvas');
+  const ctx = canvas.getContext('2d');
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  const SPRITE_STEPS = 24;
+  const MAX_FLAME = 700;
+  const MAX_SMOKE = 260;
+  const MAX_SPARKS = 80;
+  const params = { gravity: 0, airflow: 0.2, intensity: 1, look: { shape: 'slab', palette: 'normal', soot: 0, microSoot: 0 } };
+  let width = 0, height = 0, running = false, visible = true, raf = 0, lastTime = 0, spawnCarry = 0, sparkCarry = 0;
+  let sprites = [], smokeSprite = null, spriteKey = '';
+  let flames = [], smoke = [], streaks = [], sparks = [], brasas = [];
+  // Cursor sobre el esquema: aparta la llama y levanta brasas, como al remover un fuego.
+  const raton = { x: -999, y: -999, vx: 0, vy: 0, activo: false };
+  const escenaRaton = canvas.parentElement;
+  escenaRaton.addEventListener('mousemove', (ev) => {
+    const r = canvas.getBoundingClientRect();
+    const x = ev.clientX - r.left, y = ev.clientY - r.top;
+    if (raton.activo) { raton.vx = (x - raton.x) * 60; raton.vy = (y - raton.y) * 60; }
+    raton.x = x; raton.y = y; raton.activo = true;
+  });
+  escenaRaton.addEventListener('mouseleave', () => { raton.activo = false; });
+  // Pulso sincronizado con el trazo tipo monitor de las gráficas (mismo reloj: Date.now()).
+  function pulso() {
+    const sync = (typeof P !== 'undefined' && P.sync) || null;
+    if (!sync) return 1;
+    const fase = (Date.now() % sync.periodo) / sync.periodo;
+    const marca = sync.marca == null ? 0.02 : sync.marca;
+    const dist = Math.min(Math.abs(fase - marca), 1 - Math.abs(fase - marca));
+    return 1 + 0.22 * Math.exp(-((dist / 0.03) ** 2));
+  }
+
+  // Paletas fijas: el hidrógeno arde casi invisible y el metal al rojo blanco.
+  const PALETTES = {
+    hydrogen: { core: [225, 245, 255], mid: [90, 190, 255], end: [70, 110, 255], alpha: 0.85 },
+    metal: { core: [255, 255, 245], mid: [255, 222, 160], end: [255, 140, 60], alpha: 1.1 }
+  };
+  const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
+  function flameColor(t, soot) {
+    const fixed = PALETTES[params.look.palette];
+    const core = fixed ? fixed.core : mix([255, 225, 150], [255, 248, 200], soot);
+    const mid = fixed ? fixed.mid : mix([40, 140, 255], [255, 150, 30], soot);
+    const end = fixed ? fixed.end : mix([110, 50, 255], [235, 50, 20], soot);
+    return t < 0.25 ? mix(core, mid, t / 0.25) : mix(mid, end, (t - 0.25) / 0.75);
+  }
+  function makeSprite([r, g, b], stops) {
+    const sprite = document.createElement('canvas');
+    sprite.width = sprite.height = 64;
+    const c = sprite.getContext('2d');
+    const gradient = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+    for (const [offset, alpha] of stops) gradient.addColorStop(offset, `rgba(${r},${g},${b},${alpha})`);
+    c.fillStyle = gradient;
+    c.fillRect(0, 0, 64, 64);
+    return sprite;
+  }
+  function ensureSprites(soot) {
+    const key = params.look.palette + ':' + Math.round(soot * 50);
+    if (key === spriteKey) return;
+    sprites = Array.from({ length: SPRITE_STEPS }, (_, i) => makeSprite(flameColor(i / (SPRITE_STEPS - 1), soot), [[0, 1], [0.4, 0.75], [1, 0]]));
+    smokeSprite ||= makeSprite([120, 132, 142], [[0, 0.9], [0.5, 0.35], [1, 0]]);
+    spriteKey = key;
+  }
+
+  function derived() {
+    const gNorm = clamp(params.gravity / 9.81, 0, 3);
+    const low = gNorm < 0.2;
+    const look = params.look;
+    return {
+      gNorm, low,
+      micro: gNorm < 0.01,
+      buoy: 95 * Math.sqrt(gNorm),
+      wind: params.airflow * 130,
+      soot: clamp(0.15 + Math.sqrt(gNorm) * 1.1 + look.soot + (low ? look.microSoot : 0), 0, 1),
+      intensity: params.intensity
+    };
+  }
+  function base() { return { x: width * 0.44, y: height * 0.7 }; }
+
+  // Dónde nace la llama según la forma del combustible. En gravedad baja, gotas, velas
+  // y metal fundido generan una llama que rodea la fuente (radial).
+  function anchor(d) {
+    const { x, y } = base();
+    switch (params.look.shape) {
+      case 'pool': return d.low ? { x, y: y - 44, radial: true, r: 12 } : { x, y: y - 4, spread: 46 };
+      case 'wick': return d.low ? { x, y: y - 12, radial: true, r: 6 } : { x, y: y - 8, spread: 4 };
+      case 'rod': return d.low ? { x, y: y - 18, radial: true, r: 9 } : { x, y: y - 18, spread: 6 };
+      case 'wire': return { x, y: y - 2, spread: 22, sleeve: d.low };
+      case 'nozzle': return { x, y: y - 4, spread: 5, jet: true };
+      case 'sheet': return { x, y: y - 2, spread: 38 };
+      default: return { x, y: y - 4, spread: 30 };
+    }
+  }
+
+  function initStreaks() {
+    streaks = Array.from({ length: 28 }, () => ({
+      x: Math.random() * width, y: height * (0.12 + Math.random() * 0.76),
+      len: 30 + Math.random() * 70, speed: 0.6 + Math.random() * 0.8
+    }));
+  }
+
+  function spawnFlame(d, a) {
+    const p = {
+      age: 0,
+      life: (0.7 + Math.random() * 0.5) * (d.micro ? 1.7 : 1),
+      size: (14 + Math.random() * 10) * (0.75 + 0.25 * Math.min(d.intensity, 2)) * (d.micro ? 1.2 : 1)
+    };
+    if (a.radial) {
+      const angle = Math.random() * Math.PI * 2, speed = 48 + Math.random() * 36;
+      p.x = a.x + Math.cos(angle) * a.r;
+      p.y = a.y + Math.sin(angle) * a.r;
+      p.vx = Math.cos(angle) * speed + d.wind * 0.3;
+      p.vy = Math.sin(angle) * speed - d.buoy * 0.5;
+      p.size *= 1.25;
+    } else {
+      p.x = a.x + (Math.random() - 0.5) * a.spread * 2;
+      p.y = a.y + (a.sleeve ? (Math.random() - 0.5) * 10 : 0);
+      p.vx = d.wind * 0.3 + (Math.random() - 0.5) * 20;
+      p.vy = -d.buoy * 0.5 - (10 + Math.random() * 20) * Math.min(1, d.gNorm * 4);
+      if (a.jet) p.vy -= 70 * (1 - Math.min(1, d.gNorm) * 0.4);
+      if (d.low) {
+        const angle = Math.random() * Math.PI * 2, speed = 35 + Math.random() * 25;
+        p.vx += Math.cos(angle) * speed;
+        p.vy += Math.sin(angle) * speed * (a.jet ? 0.4 : a.sleeve ? 0.5 : 1);
+      }
+    }
+    flames.push(p);
+  }
+
+  function spawnSpark(d, a) {
+    const angle = Math.random() * Math.PI * 2, speed = 80 + Math.random() * 140;
+    sparks.push({
+      x: a.x, y: a.y,
+      vx: Math.cos(angle) * speed + d.wind * 0.5,
+      vy: Math.sin(angle) * speed - (d.low ? 0 : 60),
+      age: 0, life: 0.4 + Math.random() * 0.5
+    });
+  }
+
+  function step(dt) {
+    const d = derived();
+    const a = anchor(d);
+    if (d.intensity > 0 && width > 0) {
+      spawnCarry += dt * 260 * (0.3 + 0.7 * Math.min(d.intensity, 1.6)) * (d.low ? 0.7 : 1);
+      while (spawnCarry >= 1 && flames.length < MAX_FLAME) { spawnFlame(d, a); spawnCarry -= 1; }
+      spawnCarry = Math.min(spawnCarry, 1);
+      if (params.look.palette === 'metal') {
+        sparkCarry += dt * 18 * Math.min(d.intensity, 1.5);
+        while (sparkCarry >= 1 && sparks.length < MAX_SPARKS) { spawnSpark(d, a); sparkCarry -= 1; }
+        sparkCarry = Math.min(sparkCarry, 1);
+      }
+    }
+    const drag = d.low ? 1.4 : 0.2;
+    const smokeChance = d.soot * 0.35 * (params.look.palette === 'hydrogen' ? 0 : params.look.palette === 'metal' ? 0.5 : 1);
+    flames = flames.filter(p => {
+      p.vx += (d.wind - p.vx) * 1.6 * dt - p.vx * drag * dt * 0.3;
+      p.vy -= d.buoy * 1.4 * dt;
+      p.vy -= p.vy * drag * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.age += dt;
+      if (p.age < p.life) return true;
+      if (smoke.length < MAX_SMOKE && Math.random() < smokeChance) {
+        smoke.push({ x: p.x, y: p.y, vx: p.vx * 0.5, vy: p.vy * 0.4, age: 0, life: 3.5 + Math.random() * 2, size: 10 + Math.random() * 6 });
+      }
+      return false;
+    });
+    smoke = smoke.filter(p => {
+      p.vx += (d.wind - p.vx) * 0.9 * dt + (Math.random() - 0.5) * 30 * dt;
+      p.vy += (-d.buoy * 0.6 - p.vy) * 0.8 * dt + (Math.random() - 0.5) * 30 * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.age += dt;
+      return p.age < p.life && p.x > -60 && p.x < width + 60 && p.y > -60;
+    });
+    // Las chispas caen con la gravedad del escenario; en órbita siguen en línea recta.
+    sparks = sparks.filter(p => {
+      p.vy += params.gravity * 30 * dt;
+      p.vx += (d.wind - p.vx) * 0.3 * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.age += dt;
+      return p.age < p.life;
+    });
+    if (raton.activo) {
+      const radioEmpuje = 75;
+      for (const p of flames.concat(smoke)) {
+        const dx = p.x - raton.x, dy = p.y - raton.y, d2 = dx * dx + dy * dy;
+        if (d2 < radioEmpuje * radioEmpuje && d2 > 1) {
+          const dd = Math.sqrt(d2), fuerza = (1 - dd / radioEmpuje) * 1100 * dt;
+          p.vx += dx / dd * fuerza + raton.vx * 0.25 * dt;
+          p.vy += dy / dd * fuerza + raton.vy * 0.25 * dt;
+        }
+      }
+      const a = anchor(d);
+      const cerca = Math.hypot(raton.x - a.x, raton.y - a.y) < 140;
+      const rapidez = Math.hypot(raton.vx, raton.vy);
+      let nuevas = (cerca && d.intensity > 0 ? 3 : 0) + Math.min(5, rapidez * dt * 0.02);
+      while (nuevas-- > Math.random() && brasas.length < 220) {
+        brasas.push({
+          x: raton.x + (Math.random() - 0.5) * 10, y: raton.y + (Math.random() - 0.5) * 10,
+          vx: raton.vx * 0.12 + (Math.random() - 0.5) * 80, vy: raton.vy * 0.12 - 30 - Math.random() * 70,
+          edad: 0, vida: 0.5 + Math.random() * 1.1, tam: 1 + Math.random() * 1.8, fase: Math.random() * 6
+        });
+      }
+      raton.vx *= 0.85; raton.vy *= 0.85;
+    }
+    brasas = brasas.filter(b => {
+      b.vy -= (d.buoy * 0.5 + (d.low ? 0 : 20)) * dt;
+      b.vx += (d.wind - b.vx) * 0.6 * dt;
+      b.vx *= 0.99; b.vy *= 0.99;
+      b.x += b.vx * dt; b.y += b.vy * dt; b.edad += dt;
+      return b.edad < b.vida;
+    });
+    for (const s of streaks) {
+      s.x += d.wind * s.speed * dt * 1.4;
+      if (s.x - s.len > width) { s.x = -Math.random() * 40; s.y = height * (0.12 + Math.random() * 0.76); }
+    }
+  }
+
+  function roundedRect(x, y, w, h, r) {
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
+    else ctx.rect(x, y, w, h);
+  }
+
+  function drawSource(d, lit) {
+    const { x, y } = base();
+    ctx.save();
+    ctx.lineWidth = 1;
+    switch (params.look.shape) {
+      case 'slab':
+      case 'sheet': {
+        const h = params.look.shape === 'sheet' ? 5 : 12;
+        ctx.fillStyle = params.look.shape === 'sheet' ? '#3a4650' : '#26343f';
+        ctx.strokeStyle = '#3c5160';
+        roundedRect(x - 46, y, 92, h, 2); ctx.fill(); ctx.stroke();
+        if (lit) { ctx.fillStyle = 'rgba(255,140,70,.55)'; ctx.fillRect(x - 34, y, 68, 2); }
+        break;
+      }
+      case 'wire': {
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = '#4f6370'; ctx.lineWidth = 7;
+        ctx.beginPath(); ctx.moveTo(x - 140, y); ctx.lineTo(x + 140, y); ctx.stroke();
+        ctx.strokeStyle = '#b87333'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x - 140, y); ctx.lineTo(x + 140, y); ctx.stroke();
+        if (lit) {
+          ctx.strokeStyle = 'rgba(255,140,70,.6)'; ctx.lineWidth = 7;
+          ctx.beginPath(); ctx.moveTo(x - 24, y); ctx.lineTo(x + 24, y); ctx.stroke();
+        }
+        break;
+      }
+      case 'wick': {
+        ctx.fillStyle = '#cfc6ae';
+        roundedRect(x - 11, y, 22, height - y + 4, 3); ctx.fill();
+        ctx.strokeStyle = '#1b1b1b'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - (d.low ? 10 : 7)); ctx.stroke();
+        break;
+      }
+      case 'nozzle': {
+        ctx.fillStyle = '#2b3b46';
+        ctx.strokeStyle = '#46606e';
+        ctx.beginPath(); ctx.rect(x - 5, y + 4, 10, height - y); ctx.fill(); ctx.stroke();
+        roundedRect(x - 10, y - 2, 20, 8, 2); ctx.fill(); ctx.stroke();
+        break;
+      }
+      case 'pool': {
+        if (d.low) {
+          // Sin gravedad el líquido no se queda en la bandeja: flota como gota.
+          ctx.setLineDash([3, 4]);
+          ctx.strokeStyle = '#3a4c58';
+          ctx.strokeRect(x - 54, y, 108, 16);
+          ctx.setLineDash([]);
+          ctx.fillStyle = lit ? '#5d7f8f' : '#2b4b5c';
+          ctx.strokeStyle = '#6f93a3';
+          ctx.beginPath(); ctx.arc(x, y - 44, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        } else {
+          ctx.strokeStyle = '#4a5f6c';
+          ctx.fillStyle = '#16232d';
+          ctx.beginPath();
+          ctx.moveTo(x - 62, y); ctx.lineTo(x + 62, y);
+          ctx.lineTo(x + 54, y + 16); ctx.lineTo(x - 54, y + 16); ctx.closePath();
+          ctx.fill(); ctx.stroke();
+          ctx.fillStyle = lit ? 'rgba(255,170,90,.45)' : '#2b4b5c';
+          ctx.fillRect(x - 58, y + 1, 116, 3);
+        }
+        break;
+      }
+      case 'rod': {
+        ctx.fillStyle = '#6d7a84';
+        ctx.strokeStyle = '#8b98a1';
+        ctx.beginPath(); ctx.rect(x - 4, y - 14, 8, height - y + 14); ctx.fill(); ctx.stroke();
+        // Gota fundida en la punta: en gravedad baja se queda pegada y crece.
+        ctx.fillStyle = lit ? '#ffe2b0' : '#8a97a0';
+        ctx.beginPath(); ctx.arc(x, y - 18, d.low ? 8 : 5, 0, Math.PI * 2); ctx.fill();
+        break;
+      }
+      default: {
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = '#5d7380';
+        ctx.strokeRect(x - 34, y, 68, 16);
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#8aa0ab';
+        ctx.font = '600 12px "DM Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('?', x, y + 12);
+      }
+    }
+    ctx.restore();
+  }
+
+
+  // Cuerpo de la llama: forma con degradado de colores saturados y resplandor.
+  // Las partículas se dibujan encima para dar movimiento.
+  function rgba(c, a) { return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
+  function drawBody(d, a) {
+    if (d.intensity <= 0) return;
+    const t = performance.now() / 1000;
+    const escala = (0.75 + 0.3 * Math.min(d.intensity, 1.5)) * Math.min(1.4, height / 320) * pulso();
+    let empuje = 0;
+    if (raton.activo) {
+      const dist = Math.hypot(raton.x - a.x, raton.y - (a.y - 40));
+      if (dist < 150) empuje = Math.max(-1, Math.min(1, (a.x - raton.x) / 60)) * (1 - dist / 150);
+    }
+    const parpadeo = 1 + 0.06 * Math.sin(t * 9) + 0.04 * Math.sin(t * 23 + 1);
+    const paleta = params.look.palette;
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    if (d.low) {
+      // Microgravedad: llama casi esférica, estirada aguas abajo si hay aire.
+      const R = 54 * escala * parpadeo;
+      const estira = 1 + Math.min(1.5, params.airflow * 2.5);
+      ctx.translate(a.x + (estira - 1) * R * 0.6 + empuje * 16, a.y);
+      ctx.scale(estira, 1);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R);
+      if (paleta === 'hydrogen') {
+        g.addColorStop(0, rgba([235, 250, 255], 0.95)); g.addColorStop(0.4, rgba([90, 200, 255], 0.9));
+        g.addColorStop(0.8, rgba([60, 110, 255], 0.55)); g.addColorStop(1, rgba([60, 80, 255], 0));
+      } else if (paleta === 'metal') {
+        g.addColorStop(0, rgba([255, 255, 240], 1)); g.addColorStop(0.4, rgba([255, 220, 120], 0.95));
+        g.addColorStop(0.8, rgba([255, 120, 30], 0.6)); g.addColorStop(1, rgba([255, 80, 20], 0));
+      } else {
+        // Transiciones cortas entre colores opuestos para que no se mezclen en gris.
+        g.addColorStop(0, rgba([255, 248, 200], 1)); g.addColorStop(0.22, rgba([255, 200, 60], 1));
+        g.addColorStop(0.36, rgba([255, 110, 25], 0.95)); g.addColorStop(0.42, rgba([40, 130, 255], 0.95));
+        g.addColorStop(0.75, rgba([70, 80, 255], 0.75)); g.addColorStop(1, rgba([110, 50, 255], 0));
+      }
+      ctx.shadowColor = paleta === 'metal' ? 'rgba(255,170,60,.9)' : 'rgba(80,150,255,.9)';
+      ctx.shadowBlur = 30;
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fill();
+    } else {
+      // Con gravedad: llama en forma de lágrima, inclinada por el aire.
+      const chorro = params.look.shape === 'nozzle';
+      const alto = (chorro ? 195 : 155) * escala * parpadeo * (0.75 + 0.25 * Math.min(1.5, Math.sqrt(d.gNorm)));
+      const ancho = (params.look.shape === 'pool' ? 60 : chorro ? 24 : 36) * escala;
+      const inclinacion = Math.atan2(d.wind, d.buoy + 25) * 0.8;
+      ctx.translate(a.x, a.y + 4);
+      ctx.rotate(inclinacion + empuje * 0.45);
+      const punta = Math.sin(t * 7) * 4;
+      const forma = (k) => {
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.bezierCurveTo(-ancho * k, -alto * k * 0.12, -ancho * k * 0.55, -alto * k * 0.7, punta * k, -alto * k);
+        ctx.bezierCurveTo(ancho * k * 0.55, -alto * k * 0.7, ancho * k, -alto * k * 0.12, 0, 0);
+      };
+      const g = ctx.createLinearGradient(0, 0, 0, -alto);
+      if (paleta === 'hydrogen') {
+        g.addColorStop(0, rgba([120, 210, 255], 0.95)); g.addColorStop(0.5, rgba([80, 160, 255], 0.85));
+        g.addColorStop(1, rgba([70, 90, 255], 0.15));
+        ctx.shadowColor = 'rgba(90,170,255,.9)';
+      } else if (paleta === 'metal') {
+        g.addColorStop(0, rgba([255, 255, 240], 1)); g.addColorStop(0.5, rgba([255, 210, 90], 0.95));
+        g.addColorStop(1, rgba([255, 90, 20], 0.2));
+        ctx.shadowColor = 'rgba(255,170,60,.9)';
+      } else {
+        const azul = d.soot < 0.45;
+        g.addColorStop(0, rgba([40, 120, 255], 0.95));
+        g.addColorStop(0.08, rgba([60, 140, 255], 0.95));
+        g.addColorStop(0.11, rgba([255, 235, 140], 1));
+        g.addColorStop(0.4, azul ? rgba([255, 175, 60], 0.9) : rgba([255, 190, 40], 0.95));
+        g.addColorStop(0.72, rgba([255, 95, 20], 0.85));
+        g.addColorStop(1, rgba([220, 35, 20], 0.12));
+        ctx.shadowColor = 'rgba(255,120,30,.85)';
+      }
+      ctx.shadowBlur = 28;
+      ctx.fillStyle = g;
+      forma(1); ctx.fill();
+      ctx.shadowBlur = 0;
+      const nucleo = ctx.createLinearGradient(0, 0, 0, -alto * 0.45);
+      nucleo.addColorStop(0, paleta === 'hydrogen' ? rgba([230, 248, 255], 0.9) : rgba([255, 250, 225], 0.9));
+      nucleo.addColorStop(1, rgba([255, 230, 150], 0));
+      ctx.fillStyle = nucleo;
+      forma(0.45); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function draw() {
+    if (!width) return;
+    const d = derived();
+    ensureSprites(d.soot);
+    ctx.clearRect(0, 0, width, height);
+
+    const flowAlpha = params.airflow <= 0 ? 0 : clamp(0.1 + params.airflow * 0.25, 0, 0.5);
+    if (flowAlpha > 0) {
+      ctx.lineWidth = 1;
+      for (const s of streaks) {
+        const gradient = ctx.createLinearGradient(s.x - s.len, 0, s.x, 0);
+        gradient.addColorStop(0, 'rgba(102,216,208,0)');
+        gradient.addColorStop(1, `rgba(102,216,208,${flowAlpha})`);
+        ctx.strokeStyle = gradient;
+        ctx.beginPath(); ctx.moveTo(s.x - s.len, s.y); ctx.lineTo(s.x, s.y); ctx.stroke();
+      }
+    }
+
+    for (const p of smoke) {
+      const t = p.age / p.life;
+      const size = p.size * (1 + t * 2.4);
+      ctx.globalAlpha = 0.08 * Math.sin(Math.PI * Math.min(1, t * 1.2));
+      ctx.drawImage(smokeSprite, p.x - size, p.y - size, size * 2, size * 2);
+    }
+    ctx.globalAlpha = 1;
+
+    const a = anchor(d);
+    const palette = PALETTES[params.look.palette];
+    if (d.intensity > 0 && params.look.palette !== 'hydrogen') {
+      const glow = ctx.createRadialGradient(a.x, a.y - 26, 0, a.x, a.y - 26, 140);
+      glow.addColorStop(0, `rgba(255,${d.micro ? 150 : 120},70,${0.16 * Math.min(d.intensity, 1.5)})`);
+      glow.addColorStop(1, 'rgba(255,120,70,0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, width, height);
+    }
+    drawSource(d, d.intensity > 0);
+    drawBody(d, a);
+
+    ctx.globalCompositeOperation = 'source-over';
+    const brightness = Math.max(0.75, 0.6 + 0.5 * Math.min(d.intensity, 1.5)) * (palette ? palette.alpha : 1);
+    for (const p of flames) {
+      const t = p.age / p.life;
+      const sprite = sprites[Math.min(SPRITE_STEPS - 1, Math.floor(t * SPRITE_STEPS))];
+      const size = p.size * (1 + t * 0.5) * (t > 0.7 ? 1 - (t - 0.7) : 1);
+      ctx.globalAlpha = Math.min(1, Math.pow(1 - t, 1.2) * (d.low ? 0 : 0.07) * brightness);
+      ctx.drawImage(sprite, p.x - size, p.y - size, size * 2, size * 2);
+    }
+    // Segunda pasada aditiva y suave: da luminosidad sin lavar los colores a blanco.
+    ctx.globalCompositeOperation = 'lighter';
+    for (const p of []) {
+      const t = p.age / p.life;
+      const sprite = sprites[Math.min(SPRITE_STEPS - 1, Math.floor(t * SPRITE_STEPS))];
+      const size = p.size * (1 + t * 0.5) * 1.3;
+      ctx.globalAlpha = Math.pow(1 - t, 1.5) * (d.low ? 0.03 : 0.08) * brightness;
+      ctx.drawImage(sprite, p.x - size, p.y - size, size * 2, size * 2);
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    const ahora = performance.now() / 1000;
+    for (const b of brasas) {
+      const vida = 1 - b.edad / b.vida;
+      const parpadeo = 0.6 + 0.4 * Math.sin(ahora * 25 + b.fase);
+      const halo = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.tam * 5);
+      halo.addColorStop(0, `rgba(255,${150 + Math.round(70 * vida)},50,${0.55 * vida * parpadeo})`);
+      halo.addColorStop(1, 'rgba(255,90,20,0)');
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.tam * 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgba(255,${200 + Math.round(55 * vida)},${120 + Math.round(100 * vida)},${vida})`;
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.tam, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.lineWidth = 1.5;
+    for (const p of sparks) {
+      ctx.globalAlpha = 1 - p.age / p.life;
+      ctx.strokeStyle = '#ffd890';
+      ctx.beginPath(); ctx.moveTo(p.x - p.vx * 0.03, p.y - p.vy * 0.03); ctx.lineTo(p.x, p.y); ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
+
+  function frame(time) {
+    if (!running) return;
+    const dt = Math.min(0.05, (time - lastTime) / 1000 || 0.016);
+    lastTime = time;
+    step(dt);
+    draw();
+    raf = requestAnimationFrame(frame);
+  }
+  function staticFrame() {
+    flames = []; smoke = []; sparks = []; spawnCarry = 0; sparkCarry = 0;
+    for (let i = 0; i < 160; i++) step(1 / 60);
+    draw();
+  }
+  function start() {
+    if (reducedMotion.matches || !visible) { stop(); staticFrame(); return; }
+    if (running) return;
+    running = true;
+    lastTime = performance.now();
+    raf = requestAnimationFrame(frame);
+  }
+  function stop() { running = false; cancelAnimationFrame(raf); }
+
+  function resize() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    width = rect.width; height = rect.height;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    initStreaks();
+    flames = []; smoke = []; sparks = [];
+    if (!running) staticFrame();
+  }
+
+  new ResizeObserver(resize).observe(canvas);
+  new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; visible ? start() : stop(); }).observe(canvas);
+  reducedMotion.addEventListener('change', () => { stop(); start(); });
+
+  return {
+    set(next) {
+      const shapeChanged = next.look && next.look !== params.look;
+      Object.assign(params, next);
+      if (shapeChanged) { flames = []; sparks = []; }
+      if (!running) staticFrame();
+    }
+  };
+})();
+document.getElementById('hud').replaceChildren(...P.hud.map(t => Object.assign(document.createElement('span'), { textContent: t })));
+if (P.empty) {
+  document.getElementById('empty').hidden = false;
+  document.getElementById('emptyTitle').textContent = P.empty[0];
+  document.getElementById('emptyText').textContent = P.empty[1];
+}
+// Entrada con Anime.js: las etiquetas del HUD caen una tras otra y el aviso aparece suave.
+if (animar) {
+  animar.animate('#hud span', { opacity: [0, 1], translateY: [-10, 0], duration: 500,
+    delay: animar.stagger(90, { start: 150 }), ease: 'outQuad' });
+  if (P.empty) animar.animate('#empty > div', { opacity: [0, 1], scale: [0.92, 1], duration: 450, ease: 'outQuad' });
+}
+flame.set({ gravity: P.gravity, airflow: P.airflow, intensity: P.intensity, look: P.look });
+
+// Explosión: destello, bola de fuego, onda de choque, fragmentos y presión del módulo.
+if (P.explosion) {
+  const E = P.explosion;
+  const escena = document.querySelector('.stage');
+  const lienzo = document.getElementById('boomCanvas');
+  const bx = lienzo.getContext('2d');
+  const boton = document.getElementById('boomBtn');
+  const info = document.getElementById('boomInfo');
+  const reducido = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  boton.hidden = false;
+  boton.textContent = E.label;
+  if (animar) animar.animate(boton, { scale: [0, 1], opacity: [0, 1], duration: 650, delay: 400, ease: 'outBack' });
+  let raf = 0;
+  const texto = p => `Presión ${Math.round(p)} kPa · ×${(p / E.p0).toFixed(1).replace('.', ',')}`;
+
+  function reproducir() {
+    cancelAnimationFrame(raf);
+    const r = lienzo.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+    const W = r.width, H = r.height;
+    lienzo.width = W * dpr; lienzo.height = H * dpr; bx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    info.hidden = false;
+    if (reducido) { info.textContent = texto(E.pmax); return; }
+    // La etiqueta de presión «salta» al estallar; translateX fijo mantiene el centrado del CSS.
+    if (animar) animar.animate(info, { translateX: ['-50%', '-50%'], scale: [0.5, 1], opacity: [0, 1], duration: 550, ease: 'outBack' });
+    const cx = W * 0.44, cy = H * 0.6, R = Math.hypot(W, H) * 0.6, c = E.color;
+    const fragmentos = Array.from({ length: 150 }, () => {
+      const a = Math.random() * Math.PI * 2, v = 160 + Math.random() * 460;
+      return { x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vida: 0.6 + Math.random() * 1.3 };
+    });
+    const inicio = performance.now();
+    let previo = inicio;
+    function cuadro(ahora) {
+      const t = Math.max(0, (ahora - inicio) / 1000), dt = Math.max(0, Math.min(0.05, (ahora - previo) / 1000));
+      previo = ahora;
+      bx.clearRect(0, 0, W, H);
+      const temblor = t < 0.6 ? (0.6 - t) * 16 : 0;
+      escena.style.transform = temblor ? `translate(${(Math.random() - .5) * temblor}px, ${(Math.random() - .5) * temblor}px)` : '';
+      if (t < 0.25) { bx.fillStyle = `rgba(255,250,235,${(0.25 - t) / 0.25 * 0.9})`; bx.fillRect(0, 0, W, H); }
+      const avance = 1 - Math.pow(1 - Math.min(1, t / 0.9), 3);
+      const radio = R * 0.55 * avance;
+      const visible = t < 1.4 ? 1 : Math.max(0, 1 - (t - 1.4) / 1.6);
+      bx.globalCompositeOperation = 'lighter';
+      if (radio > 1 && visible > 0) {
+        const g = bx.createRadialGradient(cx, cy, 0, cx, cy, radio);
+        g.addColorStop(0, `rgba(255,255,225,${0.95 * visible})`);
+        g.addColorStop(0.18, `rgba(255,225,110,${0.9 * visible})`);
+        g.addColorStop(0.45, `rgba(${c[0]},${c[1]},${c[2]},${0.85 * visible})`);
+        g.addColorStop(0.75, `rgba(255,90,30,${0.6 * visible})`);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        bx.fillStyle = g; bx.beginPath(); bx.arc(cx, cy, radio, 0, Math.PI * 2); bx.fill();
+      }
+      for (const f of fragmentos) {
+        if (t > f.vida) continue;
+        f.vy += E.gravity * 40 * dt; f.vx *= 0.985; f.vy *= 0.985;
+        f.x += f.vx * dt; f.y += f.vy * dt;
+        bx.strokeStyle = `rgba(255,${200 - Math.round(120 * t / f.vida)},90,${1 - t / f.vida})`;
+        bx.lineWidth = 2;
+        bx.beginPath(); bx.moveTo(f.x - f.vx * 0.02, f.y - f.vy * 0.02); bx.lineTo(f.x, f.y); bx.stroke();
+      }
+      bx.globalCompositeOperation = 'source-over';
+      if (t < 1) {
+        bx.strokeStyle = `rgba(255,255,255,${(1 - t) * 0.75})`;
+        bx.lineWidth = 3 + 7 * (1 - t);
+        bx.beginPath(); bx.arc(cx, cy, R * Math.min(1.2, t / 0.7), 0, Math.PI * 2); bx.stroke();
+      }
+      if (t > 0.8) {
+        const humo = Math.min(1, (t - 0.8) / 0.8) * Math.max(0, 1 - (t - 2.4) / 1.0) * 0.5;
+        const sube = E.gravity > 0.5 ? (t - 0.8) * 45 : 0;
+        const s = bx.createRadialGradient(cx, cy - sube, 0, cx, cy - sube, R * 0.45 * (1 + (t - 0.8) * 0.3));
+        s.addColorStop(0, `rgba(95,100,105,${humo})`); s.addColorStop(1, 'rgba(95,100,105,0)');
+        bx.fillStyle = s; bx.fillRect(0, 0, W, H);
+      }
+      info.textContent = texto(E.p0 + (E.pmax - E.p0) * (1 - Math.pow(1 - Math.min(1, t / 0.5), 3)));
+      if (t < 3.4) raf = requestAnimationFrame(cuadro);
+      else { bx.clearRect(0, 0, W, H); escena.style.transform = ''; info.hidden = true; }
+    }
+    raf = requestAnimationFrame(cuadro);
+  }
+  boton.addEventListener('click', reproducir);
+  if (E.auto) setTimeout(reproducir, 700);
+}
+</script></body></html>

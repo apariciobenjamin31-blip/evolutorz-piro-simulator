@@ -1,0 +1,303 @@
+<style>
+/* Barra de atajos en semicírculo: gira para dejar en el centro la sección elegida o visible. */
+#arco-fondo { position: fixed; right: calc(var(--R) * -1 - 34px); top: 50%; width: calc(var(--R) * 2 + 68px);
+  height: calc(var(--R) * 2 + 68px); margin-top: calc(var(--R) * -1 - 34px); border-radius: 50%; z-index: 999980;
+  pointer-events: none;
+  background: radial-gradient(circle, transparent 0 calc(var(--R) - 36px), #22384a calc(var(--R) - 36px) calc(var(--R) - 34px),
+    rgba(12, 23, 32, .94) calc(var(--R) - 34px) calc(var(--R) + 32px), #22384a calc(var(--R) + 32px) calc(var(--R) + 34px), transparent calc(var(--R) + 34px)); }
+:root { --R: 130px; }
+.arco-item { position: fixed; right: 0; top: 50%; width: 62px; height: 62px; margin: -31px -31px 0 0; z-index: 999990;
+  display: grid; place-items: center; text-decoration: none !important;
+  transition: transform .7s cubic-bezier(.3, 1.25, .45, 1), opacity .4s ease; }
+.arco-cuerpo { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 60px; padding: 6px 0 5px;
+  border-radius: 14px; border: 1px solid transparent; color: #bccad1; transition: transform .35s ease, background .3s, border-color .3s; }
+.arco-cuerpo svg { width: 26px; height: 26px; overflow: visible; }
+.arco-cuerpo span { font: 500 10.5px system-ui, sans-serif; line-height: 1.1; }
+.arco-item:hover .arco-cuerpo { background: #18303f; color: #fff; }
+.arco-item:hover .arco-cuerpo { animation: burbuja .5s cubic-bezier(.3, 1.6, .5, 1) forwards; }
+.arco-item:active .arco-cuerpo { animation: pop .28s ease-out; }
+.arco-item.activo .arco-cuerpo { transform: scale(1.18); background: rgba(255, 146, 92, .16); border-color: rgba(255, 146, 92, .6);
+  color: #fff; box-shadow: 0 0 18px rgba(255, 146, 92, .35); }
+@media (max-width: 900px) { :root { --R: 104px; } .arco-cuerpo { width: 52px; } .arco-cuerpo svg { width: 22px; height: 22px; } }
+
+/* Animación de cada ícono al pasar el cursor (o cuando su sección está en el centro). */
+.arco-item:hover .gira, .arco-item.activo .gira { animation: girar 2.4s linear infinite; transform-origin: center; transform-box: fill-box; }
+.arco-item:hover .llama, .arco-item.activo .llama { animation: flamear .55s ease-in-out infinite alternate; transform-origin: 50% 100%; transform-box: fill-box; }
+.arco-item:hover .nucleo, .arco-item.activo .nucleo { animation: flamear .4s ease-in-out infinite alternate-reverse; transform-origin: 50% 100%; transform-box: fill-box; }
+.arco-item:hover .estallido { animation: explotar 1s ease-out infinite; transform-origin: center; transform-box: fill-box; }
+.arco-item:hover .manecilla, .arco-item.activo .manecilla { animation: girar 1.6s linear infinite; transform-origin: 50% 100%; transform-box: fill-box; }
+.arco-item:hover .hora { animation: girar 19.2s linear infinite; transform-origin: 50% 100%; transform-box: fill-box; }
+.arco-item:hover .destello, .arco-item.activo .destello { animation: titilar 1.2s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+.arco-item:hover .luna, .arco-item.activo .luna { animation: orbitar 2.2s linear infinite; transform-origin: 12px 12px; }
+.arco-item:hover .foco, .arco-item.activo .foco { animation: encender 1.1s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+@keyframes encender { 0%, 100% { filter: drop-shadow(0 0 0 #ffd166); transform: scale(1); }
+  50% { filter: drop-shadow(0 0 6px #ffd166) drop-shadow(0 0 12px #ffb347); transform: scale(1.12); } }
+.arco-item:hover .pagina { animation: hojear 1.1s ease-in-out infinite; transform-origin: 12px 12px; }
+@keyframes girar { to { transform: rotate(360deg); } }
+@keyframes flamear { 0% { transform: scale(1, 1) skewX(0); } 35% { transform: scale(.94, 1.1) skewX(-5deg); }
+  70% { transform: scale(1.05, .95) skewX(4deg); } 100% { transform: scale(.97, 1.07) skewX(-2deg); } }
+@keyframes explotar { 0% { transform: scale(.4) rotate(0); opacity: 1; } 60% { transform: scale(1.35) rotate(25deg); opacity: 1; }
+  100% { transform: scale(1.6) rotate(35deg); opacity: 0; } }
+@keyframes titilar { 0%, 100% { transform: scale(1) rotate(0); } 50% { transform: scale(1.35) rotate(45deg); } }
+@keyframes orbitar { to { transform: rotate(360deg); } }
+@keyframes hojear { 0%, 100% { transform: scaleX(1); } 50% { transform: scaleX(-1); } }
+/* Botón del asistente en el centro de la rueda. */
+#arco-centro { position: fixed; right: -48px; top: 50%; width: 96px; height: 96px; margin-top: -48px; z-index: 999991;
+  border-radius: 50%; border: 2px solid #b9a4ff; background: radial-gradient(circle at 35% 35%, #2a2350, #121b2b 70%);
+  color: #e8e1ff; cursor: pointer; display: grid; place-items: center start; padding-left: 14px;
+  box-shadow: 0 0 18px rgba(185, 164, 255, .35); transition: box-shadow .3s, transform .3s; }
+#arco-centro:hover { box-shadow: 0 0 28px rgba(185, 164, 255, .7); transform: scale(1.06); }
+#arco-centro .centro-icono { font-size: 22px; line-height: 1; animation: titilar 2.4s ease-in-out infinite; }
+#arco-centro .centro-texto { font: 600 9.5px system-ui, sans-serif; margin-top: 2px; }
+html.asistente-abierto #arco-centro { border-color: #ffd166; box-shadow: 0 0 26px rgba(255, 209, 102, .6); }
+
+/* Panel del asistente: sube desde abajo, sobrepuesto a la interfaz. */
+.st-key-panel_asistente { position: fixed !important; left: 50%; bottom: 0; z-index: 999993;
+  width: min(920px, 74vw) !important; max-height: 48vh; overflow-y: auto; padding: 16px 20px 12px;
+  background: rgba(12, 23, 32, .97); border: 1px solid #2a4252; border-bottom: 0; border-radius: 18px 18px 0 0;
+  box-shadow: 0 -14px 44px rgba(0, 0, 0, .6); transform: translate(-50%, 105%); opacity: 0; pointer-events: none;
+  transition: transform .45s cubic-bezier(.2, .9, .3, 1.1), opacity .3s; animation: none !important; }
+html.asistente-abierto .st-key-panel_asistente { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
+#asistente-cerrar { position: fixed; z-index: 999994; display: none; border: 1px solid #2a4252; border-radius: 999px;
+  background: #18303f; color: #e8eef1; padding: 4px 12px; font: 600 12px system-ui, sans-serif; cursor: pointer; }
+html.asistente-abierto #asistente-cerrar { display: block; }
+
+/* Ampliar la llama y la gráfica. */
+.st-key-bloque_simulacion { position: relative; }
+.boton-ampliar { position: absolute; top: -40px; right: 0; z-index: 5; border: 1px solid #2a4252; border-radius: 999px;
+  background: #10202c; color: #e8eef1; padding: 5px 12px; font: 600 12px system-ui, sans-serif; cursor: pointer;
+  transition: background .2s, transform .2s; }
+.boton-ampliar:hover { background: #18303f; transform: scale(1.05); }
+.st-key-bloque_simulacion.ampliado { position: fixed !important; inset: 4vh 4vw; z-index: 999995; padding: 52px 18px 18px;
+  background: #0b1620; border: 1px solid #2a4252; border-radius: 18px; box-shadow: 0 20px 60px rgba(0, 0, 0, .7);
+  overflow: auto; animation: none !important; }
+.st-key-bloque_simulacion.ampliado .boton-ampliar { top: 12px; right: 16px; }
+.st-key-bloque_simulacion.ampliado iframe { height: calc(92vh - 110px) !important; }
+.st-key-bloque_simulacion.ampliado { width: auto !important; max-width: none !important; }
+.st-key-bloque_simulacion.ampliado [data-testid="stElementContainer"]:has([data-testid="stPlotlyChart"]),
+.st-key-bloque_simulacion.ampliado [data-testid="stFullScreenFrame"]:has([data-testid="stPlotlyChart"]),
+.st-key-bloque_simulacion.ampliado [data-testid="stPlotlyChart"],
+.st-key-bloque_simulacion.ampliado [data-testid="stPlotlyChart"] > div,
+.st-key-bloque_simulacion.ampliado .js-plotly-plot,
+.st-key-bloque_simulacion.ampliado .plot-container,
+.st-key-bloque_simulacion.ampliado .svg-container { height: calc(92vh - 150px) !important; }
+#fondo-ampliado { position: fixed; inset: 0; z-index: 999994; background: rgba(3, 7, 11, .7); display: none; }
+html.sim-ampliada #fondo-ampliado { display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  .arco-item, .arco-item * { animation: none !important; transition: none !important; }
+  #arco-centro .centro-icono, .st-key-panel_asistente { animation: none !important; transition: none !important; }
+}
+</style>
+<script>
+(() => {
+  if (document.getElementById('arco-fondo')) return;
+  // La entrada animada solo ocurre al cargar o recargar la página.
+  setTimeout(() => document.documentElement.classList.add('ya-cargado'), 4000);
+  const SECCIONES = [
+    ['llama', 'Llama', '#ff9a68', '<path class="llama" d="M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-5 3-7 0 2 1 3 2 3 0-3 0-5 1-8z" fill="currentColor"/><path class="nucleo" d="M12 13c1 2 3 3 3 5a3 3 0 0 1-6 0c0-1.5 1.5-3 3-5z" fill="#ffe08a"/>'],
+    ['resumen', 'Resumen', '#66d8d0', '<g class="gira"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/></g><circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2" fill="currentColor"/>'],
+    ['explosion', 'Explosión', '#ff6b5e', '<polygon class="estallido" points="12,1 14.5,8 21.5,5 17,11 23,14 15.5,15 17,22.5 12,17 7,22.5 8.5,15 1,14 7,11 2.5,5 9.5,8" fill="currentColor" opacity=".35"/><polygon points="12,4 14,9.5 19,8 15.5,12.5 19.5,16 14,15 12,20 10,15 4.5,16 8.5,12.5 5,8 10,9.5" fill="currentColor"/>'],
+    ['fuga', 'Fuga', '#f0c66e', '<circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><line class="hora" x1="12" y1="12" x2="12" y2="7.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><line class="manecilla" x1="12" y1="12" x2="12" y2="4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/>'],
+    ['sugerencias', 'Sugerencias', '#ffd166', '<g class="foco"><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z" fill="currentColor"/></g><rect x="9" y="18.5" width="6" height="1.8" rx=".9" fill="currentColor"/><rect x="10" y="21" width="4" height="1.6" rx=".8" fill="currentColor"/>'],
+    ['espacio', 'Espacio', '#70d8c4', '<circle cx="12" cy="12" r="5.5" fill="currentColor"/><ellipse cx="12" cy="12" rx="11" ry="3.6" fill="none" stroke="currentColor" stroke-width="1.6" transform="rotate(-20 12 12)"/><g class="luna"><circle cx="21.5" cy="7" r="1.8" fill="#e8eef1"/></g>'],
+    ['fuentes', 'Fuentes', '#8fc5ff', '<path d="M3 5c3-1.5 6-1.5 9 0v15c-3-1.5-6-1.5-9 0z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path class="pagina" d="M12 5c3-1.5 6-1.5 9 0v15c-3-1.5-6-1.5-9 0z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>'],
+  ];
+  const PASO = 27;
+  const fondo = document.createElement('div');
+  fondo.id = 'arco-fondo';
+  document.body.appendChild(fondo);
+  const elementos = SECCIONES.map(([id, nombre, color, svg]) => {
+    const a = document.createElement('a');
+    a.className = 'arco-item';
+    a.href = '#' + id;
+    a.setAttribute('aria-label', nombre);
+    a.innerHTML = `<span class="arco-cuerpo"><svg viewBox="0 0 24 24" style="color:${color}" aria-hidden="true">${svg}</svg><span>${nombre}</span></span>`;
+    document.body.appendChild(a);
+    return a;
+  });
+
+  let actual = 0;
+  let bloqueoHasta = 0;
+  const radio = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--R')) || 130;
+  function colocar() {
+    const R = radio();
+    elementos.forEach((el, i) => {
+      const angulo = (actual - i) * PASO;
+      const visible = Math.abs(angulo) <= 85;
+      el.style.transform = `rotate(${angulo}deg) translateX(-${R}px) rotate(${-angulo}deg)`;
+      el.style.opacity = visible ? String(i === actual ? 1 : 0.9 - Math.abs(angulo) / 260) : '0';
+      el.style.pointerEvents = visible ? 'auto' : 'none';
+      el.classList.toggle('activo', i === actual);
+      el.tabIndex = visible ? 0 : -1;
+    });
+  }
+  elementos.forEach((el, i) => el.addEventListener('click', (evento) => {
+    evento.preventDefault();
+    actual = i;
+    bloqueoHasta = performance.now() + 1000;
+    colocar();
+    document.getElementById(SECCIONES[i][0])?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
+
+  // Al desplazarse, el semicírculo gira hasta la sección visible.
+  let pendiente = false;
+  document.addEventListener('scroll', () => {
+    if (pendiente || performance.now() < bloqueoHasta) return;
+    pendiente = true;
+    requestAnimationFrame(() => {
+      pendiente = false;
+      let visible = 0;
+      SECCIONES.forEach(([id], i) => {
+        const ancla = document.getElementById(id);
+        if (ancla && ancla.getBoundingClientRect().top < window.innerHeight * 0.4) visible = i;
+      });
+      if (visible !== actual) { actual = visible; colocar(); }
+    });
+  }, true);
+  window.addEventListener('resize', colocar);
+
+  // Asistente en el centro de la rueda: abre y cierra el panel inferior.
+  const centro = document.createElement('button');
+  centro.id = 'arco-centro';
+  centro.type = 'button';
+  centro.setAttribute('aria-label', 'Abrir el asistente');
+  centro.innerHTML = '<span><span class="centro-icono">✦</span><br><span class="centro-texto">Asistente</span></span>';
+  document.body.appendChild(centro);
+  const cerrar = document.createElement('button');
+  cerrar.id = 'asistente-cerrar';
+  cerrar.type = 'button';
+  cerrar.textContent = '✕ Cerrar';
+  document.body.appendChild(cerrar);
+  const raizHtml = document.documentElement;
+  function alternarAsistente(abrir) {
+    const abierto = abrir ?? !raizHtml.classList.contains('asistente-abierto');
+    raizHtml.classList.toggle('asistente-abierto', abierto);
+    centro.setAttribute('aria-label', abierto ? 'Cerrar el asistente' : 'Abrir el asistente');
+    if (abierto) setTimeout(() => document.querySelector('.st-key-panel_asistente textarea')?.focus(), 450);
+  }
+  centro.addEventListener('click', () => alternarAsistente());
+  cerrar.addEventListener('click', () => alternarAsistente(false));
+
+  // Ampliar y minimizar la llama y la gráfica.
+  const fondoAmpliado = document.createElement('div');
+  fondoAmpliado.id = 'fondo-ampliado';
+  document.body.appendChild(fondoAmpliado);
+  const ALTO_NORMAL = 300;
+  function ajustarGraficas(bloque, ampliado) {
+    const alto = Math.round(window.innerHeight * 0.92 - 150);
+    // El esquema de la llama (iframe) también tiene su contenedor con altura fija.
+    const altoLlama = Math.round(window.innerHeight * 0.92 - 110);
+    bloque.querySelectorAll('iframe').forEach((marco) => {
+      const caja = marco.closest('[data-testid="stElementContainer"]');
+      if (!caja) return;
+      if (ampliado) {
+        caja.style.setProperty('height', altoLlama + 'px', 'important');
+        caja.style.setProperty('flex', '0 0 ' + altoLlama + 'px', 'important');
+      } else {
+        caja.style.removeProperty('height');
+        caja.style.removeProperty('flex');
+      }
+    });
+    bloque.querySelectorAll('.js-plotly-plot').forEach((g) => {
+      // Streamlit fija la altura del contenedor de la gráfica: se ajusta a mano y se restaura al minimizar.
+      const contenedor = g.closest('[data-testid="stElementContainer"]');
+      if (contenedor) {
+        if (ampliado) { contenedor.style.setProperty('height', alto + 'px', 'important'); contenedor.style.setProperty('flex', '0 0 ' + alto + 'px', 'important'); }
+        else { contenedor.style.removeProperty('height'); contenedor.style.removeProperty('flex'); }
+      }
+      if (window.Plotly) window.Plotly.relayout(g, { height: ampliado ? alto : ALTO_NORMAL });
+    });
+  }
+  function alternarAmpliado(forzar) {
+    const bloque = document.querySelector('.st-key-bloque_simulacion');
+    if (!bloque) return;
+    const ampliado = forzar ?? !bloque.classList.contains('ampliado');
+    bloque.classList.toggle('ampliado', ampliado);
+    raizHtml.classList.toggle('sim-ampliada', ampliado);
+    const boton = bloque.querySelector('.boton-ampliar');
+    if (boton) boton.textContent = ampliado ? '⤡ Minimizar' : '⛶ Ampliar';
+    setTimeout(() => ajustarGraficas(bloque, ampliado), 60);
+  }
+  fondoAmpliado.addEventListener('click', () => alternarAmpliado(false));
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    alternarAmpliado(false);
+    alternarAsistente(false);
+  });
+
+  // Streamlit vuelve a dibujar la página: cada poco se recolocan el botón Ampliar y el de Cerrar.
+  setInterval(() => {
+    const bloque = document.querySelector('.st-key-bloque_simulacion');
+    if (bloque && !bloque.querySelector('.boton-ampliar')) {
+      const boton = document.createElement('button');
+      boton.type = 'button';
+      boton.className = 'boton-ampliar';
+      boton.textContent = bloque.classList.contains('ampliado') ? '⤡ Minimizar' : '⛶ Ampliar';
+      boton.addEventListener('click', () => alternarAmpliado());
+      bloque.appendChild(boton);
+    }
+    const panel = document.querySelector('.st-key-panel_asistente');
+    if (panel) {
+      const r = panel.getBoundingClientRect();
+      cerrar.style.left = (r.right - 92) + 'px';
+      cerrar.style.top = (r.top - 34) + 'px';
+    }
+  }, 400);
+
+
+  // Gráficas tipo monitor de hospital: la línea se dibuja poco a poco con una cabeza brillante,
+  // se desvanece y vuelve a empezar. Usa Date.now(), el mismo reloj que el pulso de la llama.
+  const PERIODO = 6000, SVGNS = 'http://www.w3.org/2000/svg';
+  const sinMovimiento = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function monitor() {
+    const fase = (Date.now() % PERIODO) / PERIODO;
+    const trazo = Math.min(1, fase / 0.8);
+    document.querySelectorAll('[data-testid="stPlotlyChart"] path.js-line').forEach((ruta) => {
+      const d = ruta.getAttribute('d');
+      if (!d) return;
+      if (ruta.__d !== d) { ruta.__d = d; ruta.__largo = ruta.getTotalLength(); }
+      const largo = ruta.__largo;
+      if (!largo) return;
+      ruta.style.strokeDasharray = `${largo} ${largo}`;
+      ruta.style.strokeDashoffset = String(largo * (1 - trazo));
+      ruta.style.opacity = fase < 0.8 ? '1' : String(1 - (fase - 0.8) / 0.2 * 0.7);
+      let cabeza = ruta.__cabeza;
+      if (!cabeza || !cabeza.isConnected) {
+        cabeza = document.createElementNS(SVGNS, 'circle');
+        cabeza.setAttribute('r', '5');
+        cabeza.style.pointerEvents = 'none';
+        ruta.parentNode.appendChild(cabeza);
+        ruta.__cabeza = cabeza;
+      }
+      const color = getComputedStyle(ruta).stroke;
+      const punto = ruta.getPointAtLength(largo * trazo);
+      cabeza.setAttribute('cx', punto.x);
+      cabeza.setAttribute('cy', punto.y);
+      cabeza.style.fill = '#ffffff';
+      cabeza.style.filter = `drop-shadow(0 0 5px ${color}) drop-shadow(0 0 12px ${color})`;
+      cabeza.style.opacity = fase < 0.8 ? '1' : '0';
+    });
+    requestAnimationFrame(monitor);
+  }
+  if (!sinMovimiento) requestAnimationFrame(monitor);
+
+  // Entrada: el anillo aparece y los atajos llegan girando uno tras otro.
+  fondo.animate([{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'scale(1)' }],
+    { duration: 700, easing: 'cubic-bezier(.2,.9,.3,1.2)', fill: 'both' });
+  const R0 = radio();
+  elementos.forEach((el, i) => {
+    el.style.transition = 'none';
+    el.style.opacity = '0';
+    el.style.transform = `rotate(${(actual - i) * PASO + 150}deg) translateX(-${R0}px) rotate(${-((actual - i) * PASO + 150)}deg)`;
+  });
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    elementos.forEach((el, i) => {
+      el.style.transition = '';
+      el.style.transitionDelay = `${300 + i * 90}ms`;
+    });
+    colocar();
+    setTimeout(() => elementos.forEach(el => { el.style.transitionDelay = ''; }), 300 + elementos.length * 90 + 800);
+  }));
+})();
+</script>
